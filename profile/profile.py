@@ -100,7 +100,7 @@ class Profile:
             for line in f:
                 i += 1
                 if i == self.suspicious_block.line_range[0]:
-                    out.write('FILE *fp = fopen("' + self.output_file + '", "w");\n')
+                    out.write('#include <stdio.h>\nFILE *fp = fopen("' + self.output_file + '", "w");\n')
                     #out.write('fprintf(fp, "input\\n");\n')
                     out.write('unsigned char *buffer_afs;\nint i_afs;\n')
                     out.write(state)
@@ -131,14 +131,14 @@ class Profile:
         for pt in tests:
             run_command('rm ' + self.output_file)
             logger.debug('Test running: %s' % pt)
-            res = run_command_with_timeout(TEST_SCRIPT + ' ' + pt, timeout=100)
-            if not res:
-                print "Run failed: %s" % pt
-                print "Res: %s" % str(res)
-                raise Exception
-            lines = []
-            console_output = ''
             try:
+                res = run_command_with_timeout(TEST_SCRIPT + ' ' + pt, timeout=100)
+                if not res:
+                    print "Run failed: %s" % pt
+                    print "Res: %s" % str(res)
+                    continue
+                lines = []
+                console_output = ''
                 with open(self.output_file, 'r') as f:
                     console = False
                     ll = ''
@@ -175,7 +175,6 @@ class Profile:
                 parts2 = lines[1][i].split(':')
                 if len(parts1) < 3 or len(parts2) < 3 or parts1[0] != parts2[0]:
                     logger.error("something is wrong in profile generation")
-                    raise Exception
                     return False
                 profile_dict[parts1[0]] = (''.join(parts1[1:-1]), ''.join(parts2[1:-1]))
                 logger.debug("Profile generated from this test: %s" % pt)
@@ -252,7 +251,6 @@ set confirm off
         print input_list
         os.system('rm gdb_script.txt gdb_out')
         return True
-
 
 
 

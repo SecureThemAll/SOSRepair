@@ -35,13 +35,14 @@ class SuspiciousLines():
 
     def compute_coverage(self, test_list, pos_or_neg):
         for test in test_list:
-            run_command('rm ' + get_plain_name(FAULTY_CODE) + '.gcda')
+            run_command('rm ' + GCOV_OBJECTS + '/' + get_name_without_directory(FAULTY_CODE) + '.gcda')
             try:
                 if GCOV_OBJECTS:
                     run_command('rm ' + GCOV_OBJECTS + '/*.gcda')
             except NameError:
                 pass
-            run_command('rm ' + get_name_without_directory(FAULTY_CODE) + '.gcov')
+            fname = get_name_without_directory(FAULTY_CODE)
+            run_command('rm ' + GCOV_OBJECTS + '/' + fname + '.gcov')
             res = run_command_with_timeout(TEST_SCRIPT + ' ' + test, 50)
             if not res:
                 logger.debug("test %s" %str(test))
@@ -49,20 +50,13 @@ class SuspiciousLines():
                 #TODO
                 logger.error("Coverage failed on this test %s" % test)
                 self.use_gdb_for_gcov(test)
-            try:
-                if GCOV_OBJECTS:
-                    run_command('gcov -o ' + GCOV_OBJECTS + '/ ' + FAULTY_CODE)
-                else:
-                    run_command_with_timeout('gcov ' + FAULTY_CODE)
-            except NameError:
-                run_command_with_timeout('gcov ' + FAULTY_CODE)
 
             try:
-                self.parse_gcov_file(get_name_without_directory(FAULTY_CODE) + '.gcov', pos_or_neg)
+                self.parse_gcov_file(GCOV_OBJECTS + '/' + get_name_without_directory(FAULTY_CODE) + '.gcov', pos_or_neg)
             except IOError:
                 logger.error("No gcov file found")
                 continue
-        run_command('rm ' + get_name_without_directory(FAULTY_CODE) + '.* ')
+        run_command('rm ' + GCOV_OBJECTS + '/' + get_name_without_directory(FAULTY_CODE) + '.g* ')
 
     def parse_gcov_file(self, gcov_file, pos_or_neg):
         with open(gcov_file, 'r') as f:
@@ -119,4 +113,3 @@ set confirm off
 #''')
         run_command_with_timeout_interrupt('gdb --command=gdb_script.txt', 30)
         #run_command('rm gdb_script.txt')
-

@@ -24,7 +24,7 @@ RUN apt-get update && \
                         curl \
                         build-essential \
                         bison \
-                        flex
+                        flex ssh gdb
 ENV CXX=g++
 
 ###############################################################################
@@ -43,11 +43,22 @@ RUN git clone https://github.com/Z3Prover/z3.git /tmp/z3 && \
 ###############################################################################
 # Clang 3.4.2
 ###############################################################################
-RUN echo "deb http://llvm.org/apt/trusty/ llvm-toolchain-trusty-3.4 main" >> /etc/apt/sources.list && \
-    echo "deb-src http://llvm.org/apt/trusty/ llvm-toolchain-trusty-3.4 main" >> /etc/apt/sources.list && \
-    wget -nv -O - http://llvm.org/apt/llvm-snapshot.gpg.key | apt-key add - && \
-    apt-get update && \
-    apt-get install -y clang-3.4 llvm-3.4 llvm-3.4-dev llvm-3.4-tools
+WORKDIR /usr/local/src
+RUN wget -O llvm-3.4.tar.gz https://releases.llvm.org/3.4/llvm-3.4.src.tar.gz && \
+    tar xf llvm-3.4.tar.gz && rm -f llvm-3.4.tar.gz
+
+WORKDIR /usr/local/src/llvm-3.4/tools
+RUN wget -O clang-3.4.tar.gz https://releases.llvm.org/3.4/clang-3.4.src.tar.gz && \
+    tar xf clang-3.4.tar.gz && rm -f clang-3.4.tar.gz && mv clang-3.4 clang
+
+WORKDIR /usr/local/src/llvm-3.4/tools/clang/tools
+RUN wget -O tools.tar.gz https://releases.llvm.org/3.4/clang-tools-extra-3.4.src.tar.gz && \
+    tar xf tools.tar.gz && rm -f tools.tar.gz && mv clang-tools-extra-3.4 extra
+
+RUN apt-get install groff-base
+WORKDIR /usr/local/src/llvm-3.4
+RUN ./configure --enable-optimized --enable-targets=x86_64 && make -j$(nproc)
+RUN make -j$(nproc) install
 
 ###############################################################################
 # uclibc
@@ -64,9 +75,9 @@ RUN apt-get install -y  libcap-dev \
 RUN git clone https://github.com/klee/klee-uclibc.git /tmp/uclibc && \
     ls /usr/bin && \
     cd /tmp/uclibc && \
-    ./configure --with-llvm-config /usr/bin/llvm-config-3.4 \
+    ./configure --with-llvm-config /usr/local/bin/llvm-config \
                 --make-llvm-lib && \
-    make -j && \
+    make -j$(nproc) && \
     make install PREFIX=/opt/sosrepair && \
     rm -rf /tmp/*
 
@@ -81,7 +92,7 @@ RUN git clone https://github.com/stp/minisat.git /tmp/minisat && \
     mkdir build && \
     cd build && \
     cmake -DSTATIC_BINARIES=ON -DCMAKE_INSTALL_PREFIX=/opt/sosrepair ../ && \
-    make -j install && \
+    make -j$(nproc) install && \
     cd / && \
     rm -rf /tmp/*
 
@@ -98,7 +109,7 @@ RUN cd /tmp && \
           -DBUILD_SHARED_LIBS:BOOL=OFF \
           -DENABLE_PYTHON_INTERFACE:BOOL=OFF \
           -DCMAKE_INSTALL_PREFIX=/opt/sosrepair .. && \
-    make -j && \
+    make -j$(nproc) && \
     make install && \
     ulimit -s unlimited && \
     rm -rf /tmp/*
@@ -110,7 +121,7 @@ RUN git clone https://github.com/klee/klee.git /tmp/klee && \
     cd /tmp/klee && \
     git checkout v1.4.0
 RUN cd /tmp/klee && \
-    ln -s /usr/bin/llvm-config-3.4 /usr/bin/llvm-config && \
+    ln -s /usr/local/bin/llvm-config /usr/bin/llvm-config && \
     ./configure prefix=/opt/sosrepair \
       --with-stp=/opt/sosrepair \
       --with-uclibc=/opt/sosrepair/usr/x86_64-linux-uclibc/usr/ \
@@ -146,18 +157,18 @@ RUN cd /tmp && \
     mv cmake-3.10.2-Linux-x86_64 "${CMAKE_LOCATION}"
 
 ADD docker/binary-op.patch /tmp/binary-op.patch
-RUN git clone https://git.llvm.org/git/llvm.git /tmp/llvm && \
+RUN git clone https://github.com/llvm-mirror/llvm /tmp/llvm && \
     cd /tmp/llvm && \
     mkdir build && \
     git checkout release_50 && \
     cd tools && \
-    git clone https://git.llvm.org/git/clang.git && \
+    git clone https://github.com/llvm-mirror/clang.git && \
     cd clang && \
     git checkout release_50 && \
     git apply /tmp/binary-op.patch
 RUN cd /tmp/llvm/build && \
     /opt/cmake/bin/cmake -G "Unix Makefiles" .. -DCMAKE_BUILD_TYPE=MinSizeRel && \
-    make -j8
+    make -j$(nproc)
 RUN cd /tmp/llvm/build && \
     /opt/cmake/bin/cmake -DCMAKE_INSTALL_PREFIX=/opt/sosrepair/llvm -P cmake_install.cmake
 RUN cp -r /tmp/llvm/tools/clang/bindings/python /opt/sosrepair/bindings
@@ -167,23 +178,11 @@ RUN cp -r /tmp/llvm/tools/clang/bindings/python /opt/sosrepair/bindings
 # install postgres
 ###############################################################################
 
-RUN apt-get install -y postgresql libpq-dev && \
-    pip install postgres
+RUN apt-get install -y postgresql libpq-dev && python -m pip install postgres
 USER postgres
 RUN  /etc/init.d/postgresql start && psql --command "CREATE USER root WITH SUPERUSER;"
 USER root
 RUN /etc/init.d/postgresql start && sleep 10 && createdb testdb
-
-###############################################################################
-# install a simple bug
-###############################################################################
-RUN mkdir -p /experiment && \
-     cd /tmp && \
-     wget -nv "http://repairbenchmarks.cs.umass.edu/IntroClass.tar.gz" && \
-     tar -xf "IntroClass.tar.gz" && \
-     mv IntroClass /experiment && \
-     rm -rf /tmp/*
-ADD docker/project-repair /experiment/project-repair
 
 ###############################################################################
 # SOSRepair
@@ -206,7 +205,6 @@ ADD docker/setup.sh /opt/sosrepair/prepare/setup.sh
 # Uninstall build-time dependencies
 ###############################################################################
 
-
 ###############################################################################
 # Create portable volume
 ###############################################################################
@@ -221,6 +219,6 @@ RUN port /opt/sosrepair /opt/sosrepair/bin/z3 && \
         libffi.so.6 libtinfo.so.5 libdl.so.2 && \
     port /opt/sosrepair /opt/sosrepair/bin/klee \
         libffi.so.6 libtinfo.so.5 libdl.so.2
-RUN cp /usr/bin/clang-3.4 /opt/sosrepair/bin/clang-3.4 && \
+RUN cp /usr/local/bin/clang /opt/sosrepair/bin/clang-3.4 && \
     port /opt/sosrepair /opt/sosrepair/bin/clang-3.4
 VOLUME /opt/sosrepair

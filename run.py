@@ -21,7 +21,6 @@ from utils.file_process import transform_file, get_file_name_and_module_re
 
 logger = logging.getLogger(__name__)
 
-
 class MainReturn(object):
     Patch_found = 0
     No_positive_tests = 1
@@ -67,6 +66,10 @@ def main(build_db=False, all_patches=False):
         print "Passes all tests"
         return MainReturn.No_negative_tests
 
+    # re-compile before running the tests for fault localization
+    if not run_command(COMPILE_SCRIPT):
+        return MainReturn.Patch_not_found
+
     suspicious_lines = SuspiciousLines(tests)
     suspicious_lines.compute_suspiciousness()
 
@@ -78,8 +81,12 @@ def main(build_db=False, all_patches=False):
     fl = FaultLocalization()
 
     passing_patches = []
-    os.system('rm -r patches')
-    os.system('mkdir patches')
+    patches_dir =  WORKING_DIR + '/patches'
+    repair_dir = WORKING_DIR + '/repair'
+    #os.system('rm -r ' + patches_dir)
+    os.system('mkdir ' + patches_dir)
+    #os.system('rm -r ' + repair_dir)
+    os.system('mkdir ' + repair_dir)
     total_unsat = 0
     total_sat = 0
 
@@ -145,12 +152,12 @@ def main(build_db=False, all_patches=False):
                     sat += 1
                     total_sat += 1
                     tried_snippets.append(hex_dig)
-                    patch_generation = PatchGeneration(source, variables, mapping)
+                    patch_generation = PatchGeneration(source, variables, mapping,
+                                                       temporary_file=WORKING_DIR + '/temp_snippet.c')
                     patch_generation.prepare_snippet_to_parse()
                     ast = patch_generation.parse_snippet()
                     patch_snippet = patch_generation.replace_vars(ast)
-                    patch_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                              'patches/patch' + str(len(passing_patches)) + '.c')
+                    patch_file = os.path.join(patches_dir, 'patch' + str(len(passing_patches)) + '.c')
                     patch_file = patch_generation.create_patch(sb, patch_snippet, patch_file=patch_file)
                     run_command('cp ' + patch_file + ' ' + FAULTY_CODE)
                     for i in range(NUMBER_OF_TIMES_RERUNNING_TESTS):
@@ -161,6 +168,7 @@ def main(build_db=False, all_patches=False):
                     if success:
                         print "Found a patch!!! YAY"
                         logger.info("Found a patch!!! YAY")
+                        run_command('cp ' + patch_file + ' ' + repair_dir)
                         run_command('cp ' + original_copy + ' ' + FAULTY_CODE)
                         passing_patches.append(patch_file)
                         if not all_patches:
@@ -240,12 +248,12 @@ def main(build_db=False, all_patches=False):
                         continue
                     total_sat += 1
                     tried_snippets.append(hex_dig)
-                    patch_generation = PatchGeneration(source, variables, mapping)
+                    patch_generation = PatchGeneration(source, variables, mapping,
+                                                       temporary_file=WORKING_DIR + '/temp_snippet.c')
                     patch_generation.prepare_snippet_to_parse()
                     ast = patch_generation.parse_snippet()
                     patch_snippet = patch_generation.replace_vars(ast)
-                    patch_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                              'patches/patch' + str(len(passing_patches)) + '.c')
+                    patch_file = os.path.join(patches_dir,'patch' + str(len(passing_patches)) + '.c')
                     patch_file = patch_generation.create_patch(sb, patch_snippet, patch_file=patch_file)
                     run_command('cp ' + patch_file + ' ' + FAULTY_CODE)
                     for i in range(NUMBER_OF_TIMES_RERUNNING_TESTS):
@@ -256,6 +264,7 @@ def main(build_db=False, all_patches=False):
                     if success:
                         print "Found a patch!!! YAY"
                         logger.info("Found a patch!!! YAY")
+                        run_command('cp ' + patch_file + ' ' + repair_dir)
                         run_command('cp ' + original_copy + ' ' + FAULTY_CODE)
                         passing_patches.append(patch_file)
                         if not all_patches:
